@@ -30,8 +30,44 @@ import kotlin.test.assertEquals
  * transaction size limit (which should only consider the hashes).
  */
 class LargeTransactionsTest {
-    companion object {
+    private companion object {
         val BOB = TestIdentity(BOB_NAME, 80).party
+    }
+
+    @StartableByRPC
+    @InitiatingFlow
+    class SendLargeTransactionFlow(private val hash1: SecureHash,
+                                   private val hash2: SecureHash,
+                                   private val hash3: SecureHash,
+                                   private val hash4: SecureHash) : FlowLogic<Unit>() {
+        @Suspendable
+        override fun call() {
+            val notary = serviceHub.networkParameters.notaries.first().identity
+            val tx = TransactionBuilder(notary)
+                    .addOutputState(DummyState(), DummyContract.PROGRAM_ID)
+                    .addCommand(dummyCommand(ourIdentity.owningKey))
+                    .addAttachment(hash1)
+                    .addAttachment(hash2)
+                    .addAttachment(hash3)
+                    .addAttachment(hash4)
+            val stx = serviceHub.signInitialTransaction(tx, ourIdentity.owningKey)
+            // Send to the other side and wait for it to trigger resolution from us.
+            val bob = serviceHub.identityService.wellKnownPartyFromX500Name(BOB.name)!!
+            val bobSession = initiateFlow(bob)
+            subFlow(SendTransactionFlow(bobSession, stx))
+            bobSession.receive<Unit>()
+        }
+    }
+
+    @InitiatedBy(SendLargeTransactionFlow::class)
+    @Suppress("UNUSED")
+    class ReceiveLargeTransactionFlow(private val otherSide: FlowSession) : FlowLogic<Unit>() {
+        @Suspendable
+        override fun call() {
+            subFlow(ReceiveTransactionFlow(otherSide))
+            // Unblock the other side by sending some dummy object (Unit is fine here as it's a singleton).
+            otherSide.send(Unit)
+        }
     }
 
     @Test
@@ -42,10 +78,11 @@ class LargeTransactionsTest {
         val bigFile2 = InputStreamAndHash.createInMemoryTestZip(3.MB.toInt(), 1, "b")
         val bigFile3 = InputStreamAndHash.createInMemoryTestZip(3.MB.toInt(), 2, "c")
         val bigFile4 = InputStreamAndHash.createInMemoryTestZip(3.MB.toInt(), 3, "d")
+
         driver(DriverParameters(
                 startNodesInProcess = true,
                 cordappsForAllNodes = listOf(DUMMY_CONTRACTS_CORDAPP, enclosedCordapp()),
-                networkParameters = testNetworkParameters(maxMessageSize = 16.MB.toInt(), maxTransactionSize = 14.MB.toInt())
+                networkParameters = testNetworkParameters(maxMessageSize = 15.MB.toInt(), maxTransactionSize = 13.MB.toInt())
         )) {
             val rpcUser = User("admin", "admin", setOf("ALL"))
             val (alice, _) = listOf(ALICE_NAME, BOB_NAME).map { startNode(providedName = it, rpcUsers = listOf(rpcUser)) }.transpose().getOrThrow()
@@ -59,41 +96,5 @@ class LargeTransactionsTest {
                 it.proxy.startFlow(::SendLargeTransactionFlow, hash1, hash2, hash3, hash4).returnValue.getOrThrow()
             }
         }
-    }
-}
-
-@StartableByRPC
-@InitiatingFlow
-class SendLargeTransactionFlow(private val hash1: SecureHash,
-                               private val hash2: SecureHash,
-                               private val hash3: SecureHash,
-                               private val hash4: SecureHash) : FlowLogic<Unit>() {
-    @Suspendable
-    override fun call() {
-        val notary = serviceHub.networkParameters.notaries.first().identity
-        val tx = TransactionBuilder(notary)
-                .addOutputState(DummyState(), DummyContract.PROGRAM_ID)
-                .addCommand(dummyCommand(ourIdentity.owningKey))
-                .addAttachment(hash1)
-                .addAttachment(hash2)
-                .addAttachment(hash3)
-                .addAttachment(hash4)
-        val stx = serviceHub.signInitialTransaction(tx, ourIdentity.owningKey)
-        // Send to the other side and wait for it to trigger resolution from us.
-        val bob = serviceHub.identityService.wellKnownPartyFromX500Name(LargeTransactionsTest.BOB.name)!!
-        val bobSession = initiateFlow(bob)
-        subFlow(SendTransactionFlow(bobSession, stx))
-        bobSession.receive<Unit>()
-    }
-}
-
-@InitiatedBy(SendLargeTransactionFlow::class)
-@Suppress("UNUSED")
-class ReceiveLargeTransactionFlow(private val otherSide: FlowSession) : FlowLogic<Unit>() {
-    @Suspendable
-    override fun call() {
-        subFlow(ReceiveTransactionFlow(otherSide))
-        // Unblock the other side by sending some dummy object (Unit is fine here as it's a singleton).
-        otherSide.send(Unit)
     }
 }
