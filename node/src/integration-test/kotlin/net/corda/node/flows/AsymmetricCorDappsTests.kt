@@ -86,3 +86,29 @@ class AsymmetricCorDappsTests {
         }
     }
 }
+
+@StartableByRPC
+@InitiatingFlow
+class Ping(private val pongParty: Party, val times: Int) : FlowLogic<Unit>() {
+    @Suspendable
+    override fun call() {
+        val pongSession = initiateFlow(pongParty)
+        pongSession.sendAndReceive<Unit>(times)
+        for (i in 1..times) {
+            val j = pongSession.sendAndReceive<Int>(i).unwrap { it }
+            assertEquals(i, j)
+        }
+    }
+}
+
+@InitiatedBy(Ping::class)
+class Pong(private val pingSession: FlowSession) : FlowLogic<Unit>() {
+    @Suspendable
+    override fun call() {
+        val times = pingSession.sendAndReceive<Int>(Unit).unwrap { it }
+        for (i in 1..times) {
+            val j = pingSession.sendAndReceive<Int>(i).unwrap { it }
+            assertEquals(i, j)
+        }
+    }
+}

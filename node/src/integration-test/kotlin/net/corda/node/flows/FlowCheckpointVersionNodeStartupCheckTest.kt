@@ -64,7 +64,7 @@ class FlowCheckpointVersionNodeStartupCheckTest {
             val bobBaseDir = createSuspendedFlowInBob(setOf(cordapp))
 
             val cordappsDir = bobBaseDir / "cordapps"
-            val cordappJar = cordappsDir.list().single { it.toString().endsWith(".jar") }
+            val cordappJar = cordappsDir.list().single { it.fileName.toString().startsWith("different-jar") }
             // Make sure we're dealing with right jar
             assertThat(cordappJar.fileName.toString()).contains(uniqueName)
             // Rename the jar file.
@@ -91,8 +91,9 @@ class FlowCheckpointVersionNodeStartupCheckTest {
 
             val cordappsDir = bobBaseDir / "cordapps"
             val cordappJar = cordappsDir.list().single {
-               ! it.toString().contains(uniqueContractJarName) && it.toString().endsWith(".jar")
+                it.fileName.toString().startsWith(uniqueWorkflowJarName)
             }
+
             // Make sure we're dealing with right jar
             assertThat(cordappJar.fileName.toString()).contains(uniqueWorkflowJarName)
 
